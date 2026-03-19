@@ -25,8 +25,6 @@ class PackagesBuilder extends Builder
 {
     public const MINIFY_ALGORITHM_V2 = 'composer/2.0';
 
-    /** packages.json file name. */
-    private string $filename;
     /** included json filename template */
     private string $includeFileName;
     /** @var list<mixed> */
@@ -40,7 +38,6 @@ class PackagesBuilder extends Builder
     {
         parent::__construct($output, $outputDir, $config, $skipErrors, $storage);
 
-        $this->filename = $this->outputDir . '/packages.json';
         $this->includeFileName = $config['include-filename'] ?? 'include/all$%hash%.json';
         $this->minify = $minify;
         $this->config['includes'] = $config['includes'] ?? true;

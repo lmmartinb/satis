@@ -26,6 +26,7 @@ class RemoteStorageSync
                 $decoded = json_decode($contents, true);
                 if (is_array($decoded) && isset($decoded['includes'])) {
                     foreach (array_keys($decoded['includes']) as $includePath) {
+                        $includePath = (string) $includePath;
                         if ($storage->fileExists($includePath)) {
                             $includeContents = $storage->read($includePath);
                             self::writeLocal($outputDir . '/' . $includePath, $includeContents);
