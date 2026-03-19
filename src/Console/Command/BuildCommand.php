@@ -419,5 +419,4 @@ class BuildCommand extends BaseCommand
 
         throw new ParsingException('"' . $configFile . '" does not contain valid JSON' . "\n" . $result->getMessage(), $result->getDetails());
     }
-
 }

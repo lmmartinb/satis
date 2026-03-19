@@ -65,7 +65,7 @@ class ArchiveBuilder extends Builder
             ? sys_get_temp_dir() . '/satis_archives_' . uniqid()
             : null;
 
-        if ($isRemote && $localArchiveDir !== null) {
+        if ($isRemote && null !== $localArchiveDir) {
             @mkdir($localArchiveDir, 0777, true);
         }
 
@@ -132,7 +132,7 @@ class ArchiveBuilder extends Builder
                 $archiveDir = $this->config['archive']['directory'];
                 $remoteRelativePath = sprintf('%s/%s', $archiveDir, $intermediatePath);
 
-                if ($isRemote && $localArchiveDir !== null) {
+                if ($isRemote && null !== $localArchiveDir) {
                     $targetDir = sprintf('%s/%s', $localArchiveDir, $intermediatePath);
                 } else {
                     $targetDir = sprintf('%s/%s', $basedir, $intermediatePath);
@@ -208,7 +208,7 @@ class ArchiveBuilder extends Builder
             $this->output->writeln('');
         }
 
-        if ($isRemote && $localArchiveDir !== null) {
+        if ($isRemote && null !== $localArchiveDir) {
             $filesystem = new Filesystem();
             $filesystem->removeDirectory($localArchiveDir);
         }
