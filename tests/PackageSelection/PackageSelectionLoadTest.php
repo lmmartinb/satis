@@ -16,6 +16,8 @@ namespace Composer\Satis\PackageSelection;
 use Composer\Package\AliasPackage;
 use Composer\Package\Package;
 use Composer\Satis\Builder\PackagesBuilder;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamDirectory;
 use org\bovigo\vfs\vfsStreamWrapper;
@@ -75,7 +77,7 @@ class PackageSelectionLoadTest extends TestCase
         $packagesBuilder = new PackagesBuilder(new NullOutput(), vfsStream::url('build'), [
             'repositories' => [['type' => 'composer', 'url' => 'http://localhost:54715']],
             'require' => ['vendor/name' => '*'],
-        ], false);
+        ], false, new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0)));
         $packagesBuilder->dump([$this->package, $this->devPackage]);
 
         return $root;

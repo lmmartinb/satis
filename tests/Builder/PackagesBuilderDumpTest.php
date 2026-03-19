@@ -15,6 +15,8 @@ namespace Composer\Satis\Builder;
 
 use Composer\Json\JsonFile;
 use Composer\Package\Package;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamDirectory;
 use org\bovigo\vfs\vfsStreamFile;
@@ -34,6 +36,11 @@ class PackagesBuilderDumpTest extends TestCase
     protected function setUp(): void
     {
         $this->root = vfsStream::setup('build');
+    }
+
+    private function createStorage(): Filesystem
+    {
+        return new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0));
     }
 
     /**
@@ -65,7 +72,7 @@ class PackagesBuilderDumpTest extends TestCase
             'providers' => $providers,
             'repositories' => [['type' => 'composer', 'url' => 'http://localhost:54715']],
             'require' => ['vendor/name' => '*'],
-        ], false);
+        ], false, $this->createStorage());
         $lastIncludedJsonFile = null;
 
         foreach ([1, 2, 2] as $i) {
@@ -139,7 +146,7 @@ class PackagesBuilderDumpTest extends TestCase
                 'homepage' => $url,
                 'repositories' => [['type' => 'composer', 'url' => 'http://localhost:54715']],
                 'require' => ['vendor/name' => '*'],
-            ], false);
+            ], false, $this->createStorage());
             $packagesBuilder->dump(self::createPackages(1));
             /** @var vfsStreamFile $file */
             $file = $this->root->getChild('build/packages.json');
@@ -158,7 +165,7 @@ class PackagesBuilderDumpTest extends TestCase
             'notify-batch' => 'http://localhost:54715/notify',
             'repositories' => [['type' => 'composer', 'url' => 'http://localhost:54715']],
             'require' => ['vendor/name' => '*'],
-        ], false);
+        ], false, $this->createStorage());
 
         $packagesBuilder->dump(self::createPackages(1));
 
@@ -207,7 +214,7 @@ class PackagesBuilderDumpTest extends TestCase
             'require' => ['vendor/name' => '*'],
             'pretty-print' => $shouldPrettyPrint,
             'include-filename' => 'out.json',
-        ], false);
+        ], false, $this->createStorage());
         $packages = self::createPackages(1);
         $packagesBuilder->dump($packages);
         /** @var vfsStreamFile $file */
@@ -242,7 +249,7 @@ class PackagesBuilderDumpTest extends TestCase
         $packagesBuilder = new PackagesBuilder(new NullOutput(), vfsStream::url('build'), [
             'repositories' => [['type' => 'composer', 'url' => 'http://localhost:54715']],
             'require' => ['vendor/name' => '*'],
-        ], false, true);
+        ], false, $this->createStorage(), true);
         $packagesBuilder->dump(array_merge(self::createPackages(1), self::createPackages(2)));
         /** @var vfsStreamFile $file */
         $file = $this->root->getChild('build/p2/vendor/name.json');

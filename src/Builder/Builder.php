@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 namespace Composer\Satis\Builder;
 
+use League\Flysystem\FilesystemOperator;
 use Symfony\Component\Console\Output\OutputInterface;
 
 abstract class Builder implements BuilderInterface
@@ -25,15 +26,18 @@ abstract class Builder implements BuilderInterface
     protected array $config;
     /** @var bool Skips Exceptions if true. */
     protected bool $skipErrors;
+    /** @var FilesystemOperator The storage backend. */
+    protected FilesystemOperator $storage;
 
     /**
      * @param array<string, mixed> $config
      */
-    public function __construct(OutputInterface $output, string $outputDir, array $config, bool $skipErrors)
+    public function __construct(OutputInterface $output, string $outputDir, array $config, bool $skipErrors, FilesystemOperator $storage)
     {
         $this->output = $output;
         $this->outputDir = $outputDir;
         $this->config = $config;
         $this->skipErrors = $skipErrors;
+        $this->storage = $storage;
     }
 }

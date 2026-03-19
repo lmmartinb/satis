@@ -22,7 +22,10 @@ use Composer\Package\Archiver\ArchiveManager;
 use Composer\Package\CompletePackage;
 use Composer\Package\CompletePackageInterface;
 use Composer\Package\PackageInterface;
+use Composer\Satis\Storage\StorageConfig;
 use Composer\Util\Loop;
+use League\Flysystem\Filesystem as FlysystemFilesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\InputInterface;
@@ -144,9 +147,12 @@ class ArchiveBuilderTest extends TestCase
 
         $config = array_merge_recursive($this->satisConfig, $customConfig);
 
-        $builder = new ArchiveBuilder($this->output, $this->outputDir, $config, true);
+        @mkdir($this->outputDir, 0777, true);
+        $storage = new FlysystemFilesystem(new LocalFilesystemAdapter($this->outputDir));
+        $builder = new ArchiveBuilder($this->output, $this->outputDir, $config, true, $storage);
         $builder->setInput($this->input);
         $builder->setComposer($this->composer);
+        $builder->setStorageConfig(new StorageConfig());
         $builder->dump($packages);
 
         self::assertSame($expectedFileName, basename((string) $packages[0]->getDistUrl()));
@@ -201,9 +207,12 @@ class ArchiveBuilderTest extends TestCase
         $this->removeArchives();
 
         $config = array_merge_recursive($this->satisConfig, $customConfig);
-        $builder = new ArchiveBuilder($this->output, $this->outputDir, $config, true);
+        @mkdir($this->outputDir, 0777, true);
+        $storage = new FlysystemFilesystem(new LocalFilesystemAdapter($this->outputDir));
+        $builder = new ArchiveBuilder($this->output, $this->outputDir, $config, true, $storage);
         $builder->setInput($this->input);
         $builder->setComposer($this->composer);
+        $builder->setStorageConfig(new StorageConfig());
         $builder->dump($packages);
 
         self::assertSame($expectedFileName, basename((string) $packages[0]->getDistUrl()));

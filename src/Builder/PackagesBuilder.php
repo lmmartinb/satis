@@ -18,6 +18,7 @@ use Composer\MetadataMinifier\MetadataMinifier;
 use Composer\Package\Dumper\ArrayDumper;
 use Composer\Package\PackageInterface;
 use Composer\Semver\VersionParser;
+use League\Flysystem\FilesystemOperator;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class PackagesBuilder extends Builder
@@ -35,9 +36,9 @@ class PackagesBuilder extends Builder
     /**
      * @param array<string, mixed> $config
      */
-    public function __construct(OutputInterface $output, string $outputDir, array $config, bool $skipErrors, bool $minify = false)
+    public function __construct(OutputInterface $output, string $outputDir, array $config, bool $skipErrors, FilesystemOperator $storage, bool $minify = false)
     {
-        parent::__construct($output, $outputDir, $config, $skipErrors);
+        parent::__construct($output, $outputDir, $config, $skipErrors, $storage);
 
         $this->filename = $this->outputDir . '/packages.json';
         $this->includeFileName = $config['include-filename'] ?? 'include/all$%hash%.json';
@@ -56,7 +57,6 @@ class PackagesBuilder extends Builder
             $packagesByName[$package->getName()][$package->getPrettyVersion()] = $dumper->dump($package);
         }
 
-        // Composer 1.0 format
         $repo = ['packages' => []];
         if (isset($this->config['providers']) && true === $this->config['providers']) {
             $providersUrl = 'p/%package%$%hash%.json';
@@ -67,13 +67,11 @@ class PackagesBuilder extends Builder
             }
             $repo['providers'] = [];
             $i = 1;
-            // Give each version a unique ID
             foreach ($packagesByName as $packageName => $versionPackages) {
                 foreach ($versionPackages as $version => $versionPackage) {
                     $packagesByName[$packageName][$version]['uid'] = $i++;
                 }
             }
-            // Dump the packages along with packages they're replaced by
             foreach ($packagesByName as $packageName => $versionPackages) {
                 $dumpPackages = $this->findReplacements($packagesByName, $packageName);
                 $dumpPackages[$packageName] = $versionPackages;
@@ -90,7 +88,6 @@ class PackagesBuilder extends Builder
             $repo['includes'] = $this->dumpPackageIncludeJson($packagesByName, $this->includeFileName);
         }
 
-        // Composer 2.0 format
         $metadataUrl = 'p2/%package%.json';
         if (array_key_exists('homepage', $this->config) && false !== filter_var($this->config['homepage'], FILTER_VALIDATE_URL)) {
             $repo['metadata-url'] = parse_url(rtrim($this->config['homepage'], '/'), PHP_URL_PATH) . '/' . $metadataUrl;
@@ -121,7 +118,6 @@ class PackagesBuilder extends Builder
                 }
             }
 
-            // Stable versions
             $this->dumpPackageIncludeJson(
                 [$packageName => $this->minify ? MetadataMinifier::minify($stableVersions) : $stableVersions],
                 str_replace('%package%', $packageName, $metadataUrl),
@@ -129,7 +125,6 @@ class PackagesBuilder extends Builder
                 $additionalMetaData
             );
 
-            // Dev versions
             $this->dumpPackageIncludeJson(
                 [$packageName => $this->minify ? MetadataMinifier::minify($devVersions) : $devVersions],
                 str_replace('%package%', $packageName.'~dev', $metadataUrl),
@@ -169,9 +164,9 @@ class PackagesBuilder extends Builder
         $paths = [];
         while ($this->writtenIncludeJsons) {
             list($hash, $includesUrl) = array_shift($this->writtenIncludeJsons);
-            $path = $this->outputDir . '/' . ltrim($includesUrl, '/');
-            $dirname = dirname($path);
-            $basename = basename($path);
+            $relativePath = ltrim($includesUrl, '/');
+            $dirname = dirname($relativePath);
+            $basename = basename($relativePath);
             if (false !== strpos($dirname, '%hash%')) {
                 throw new \RuntimeException('Refusing to prune when %hash% is in dirname');
             }
@@ -180,43 +175,45 @@ class PackagesBuilder extends Builder
         }
         $pruneFiles = [];
         foreach ($paths as $dirname => $entries) {
-            foreach (new \DirectoryIterator($dirname) as $file) {
+            foreach ($this->storage->listContents($dirname, false) as $item) {
+                if (!$item->isFile()) {
+                    continue;
+                }
+                $itemBasename = basename($item->path());
                 foreach ($entries as $entry) {
                     list($pattern, $hash) = $entry;
-                    if (1 === preg_match($pattern, $file->getFilename(), $matches) && $matches[1] !== $hash) {
+                    if (1 === preg_match($pattern, $itemBasename, $matches) && $matches[1] !== $hash) {
                         $group = sprintf(
                             '%s/%s',
                             basename($dirname),
-                            preg_replace('/\$.*$/', '', $file->getFilename())
+                            preg_replace('/\$.*$/', '', $itemBasename)
                         );
                         if (!array_key_exists($group, $pruneFiles)) {
                             $pruneFiles[$group] = [];
                         }
-                        // Mark file for pruning.
-                        $pruneFiles[$group][] = new \SplFileInfo($file->getPathname());
+                        $pruneFiles[$group][] = [
+                            'path' => $item->path(),
+                            'lastModified' => $item->lastModified(),
+                        ];
                     }
                 }
             }
         }
-        // Get the pruning limit.
         $offset = $this->config['providers-history-size'] ?? 0;
-        // Unlink to-be-pruned files.
         foreach ($pruneFiles as $group => $files) {
-            // Sort to-be-pruned files base on ctime, latest first.
             usort(
                 $files,
-                function (\SplFileInfo $fileA, \SplFileInfo $fileB) {
-                    return $fileB->getCTime() <=> $fileA->getCTime();
+                function (array $fileA, array $fileB) {
+                    return $fileB['lastModified'] <=> $fileA['lastModified'];
                 }
             );
-            // If configured, skip files from the to-be-pruned files by offset.
             $files = array_splice($files, $offset);
             foreach ($files as $file) {
-                unlink($file->getPathname());
+                $this->storage->delete($file['path']);
                 $this->output->writeln(
                     sprintf(
                         '<comment>Deleted %s</comment>',
-                        $file->getPathname()
+                        $file['path']
                     )
                 );
             }
@@ -236,9 +233,9 @@ class PackagesBuilder extends Builder
     private function dumpPackageIncludeJson(array $packages, string $includesUrl, string $hashAlgorithm = 'sha1', array $additionalMetaData = []): array
     {
         $filename = str_replace('%hash%', 'prep', $includesUrl);
-        $path = $tmpPath = $this->outputDir . '/' . ltrim($filename, '/');
+        $relativePath = ltrim($filename, '/');
 
-        $repoJson = new JsonFile($path);
+        $repoJson = new JsonFile($this->outputDir . '/' . $relativePath);
         $options = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
         $shouldPrettyPrint = isset($this->config['pretty-print']) ? (bool) $this->config['pretty-print'] : true;
         if ($shouldPrettyPrint) {
@@ -251,16 +248,17 @@ class PackagesBuilder extends Builder
         if (false !== strpos($includesUrl, '%hash%')) {
             $this->writtenIncludeJsons[] = [$hash, $includesUrl];
             $filename = str_replace('%hash%', $hash, $includesUrl);
-            if (file_exists($path = $this->outputDir . '/' . ltrim($filename, '/'))) {
-                // When the file exists, we don't need to override it as we assume,
-                // the contents satisfy the hash
-                $path = null;
+            $targetRelativePath = ltrim($filename, '/');
+            if ($this->storage->fileExists($targetRelativePath)) {
+                $targetRelativePath = null;
             }
+        } else {
+            $targetRelativePath = $relativePath;
         }
 
-        if (is_string($path)) {
-            $this->writeToFile($path, $contents);
-            $this->output->writeln("<info>Wrote packages to $path</info>");
+        if (is_string($targetRelativePath)) {
+            $this->writeToStorage($targetRelativePath, $contents);
+            $this->output->writeln("<info>Wrote packages to $targetRelativePath</info>");
         }
 
         return [
@@ -272,27 +270,19 @@ class PackagesBuilder extends Builder
      * @throws \UnexpectedValueException
      * @throws \Exception
      */
-    private function writeToFile(string $path, string $contents): void
+    private function writeToStorage(string $relativePath, string $contents): void
     {
-        if (file_exists($path) && sha1_file($path) === sha1($contents)) {
-            // The file already contains the expected contents.
-            return;
-        }
-
-        $dir = dirname($path);
-        if (!is_dir($dir)) {
-            if (file_exists($dir)) {
-                throw new \UnexpectedValueException($dir . ' exists and is not a directory.');
-            }
-            if (!@mkdir($dir, 0777, true)) {
-                throw new \UnexpectedValueException($dir . ' does not exist and could not be created.');
+        if ($this->storage->fileExists($relativePath)) {
+            $existingContents = $this->storage->read($relativePath);
+            if (sha1($existingContents) === sha1($contents)) {
+                return;
             }
         }
 
         $retries = 3;
         while ($retries--) {
             try {
-                file_put_contents($path, $contents);
+                $this->storage->write($relativePath, $contents);
                 break;
             } catch (\Exception $e) {
                 if ($retries > 0) {
@@ -315,7 +305,8 @@ class PackagesBuilder extends Builder
         }
 
         $this->output->writeln('<info>Writing packages.json</info>');
-        $repoJson = new JsonFile($this->filename);
-        $repoJson->write($repo);
+        $options = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT;
+        $encoded = JsonFile::encode($repo, $options) . "\n";
+        $this->storage->write('packages.json', $encoded);
     }
 }

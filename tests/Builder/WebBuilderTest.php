@@ -15,6 +15,8 @@ namespace Composer\Test\Satis;
 
 use Composer\Package\Package;
 use Composer\Satis\Builder\WebBuilder;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Output\NullOutput;
@@ -31,7 +33,7 @@ class WebBuilderTest extends TestCase
 
     public function setUp(): void
     {
-        $this->webBuilder = new WebBuilder(new NullOutput(), 'build', [], false);
+        $this->webBuilder = new WebBuilder(new NullOutput(), 'build', [], false, new Filesystem(new LocalFilesystemAdapter('build')));
     }
 
     /**
@@ -86,7 +88,7 @@ class WebBuilderTest extends TestCase
         $config = [
             'twig-template' => 'foo.twig',
         ];
-        $this->webBuilder = new WebBuilder(new NullOutput(), 'build', $config, false);
+        $this->webBuilder = new WebBuilder(new NullOutput(), 'build', $config, false, new Filesystem(new LocalFilesystemAdapter('build')));
         $reflection = new \ReflectionClass($this->webBuilder);
         $method = $reflection->getMethod('getTwigTemplate');
 

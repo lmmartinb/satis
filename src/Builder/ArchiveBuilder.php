@@ -20,6 +20,7 @@ use Composer\Package\Archiver\ArchiveManager;
 use Composer\Package\CompletePackage;
 use Composer\Package\CompletePackageInterface;
 use Composer\Package\PackageInterface;
+use Composer\Satis\Storage\StorageConfig;
 use Composer\Util\Filesystem;
 use Composer\Util\SyncHelper;
 use Symfony\Component\Console\Helper\ProgressBar;
@@ -31,6 +32,15 @@ class ArchiveBuilder extends Builder
     private Composer $composer;
 
     private InputInterface $input;
+
+    private StorageConfig $storageConfig;
+
+    public function setStorageConfig(StorageConfig $storageConfig): self
+    {
+        $this->storageConfig = $storageConfig;
+
+        return $this;
+    }
 
     /**
      * @param array<PackageInterface> $packages
@@ -49,6 +59,15 @@ class ArchiveBuilder extends Builder
         /** @var ArchiveManager $archiveManager */
         $archiveManager = $this->composer->getArchiveManager();
         $archiveManager->setOverwriteFiles(false);
+
+        $isRemote = isset($this->storageConfig) && $this->storageConfig->isRemote();
+        $localArchiveDir = $isRemote
+            ? sys_get_temp_dir() . '/satis_archives_' . uniqid()
+            : null;
+
+        if ($isRemote && $localArchiveDir !== null) {
+            @mkdir($localArchiveDir, 0777, true);
+        }
 
         shuffle($packages);
 
@@ -107,22 +126,61 @@ class ArchiveBuilder extends Builder
                 $intermediatePath = preg_replace('#[^a-z0-9-_/]#i', '-', $package->getName());
 
                 if ('pear-library' === $package->getType()) {
-                    /* @see https://github.com/composer/composer/commit/44a4429978d1b3c6223277b875762b2930e83e8c */
                     throw new \RuntimeException('The PEAR repository has been removed from Composer 2.0');
                 }
 
-                $targetDir = sprintf('%s/%s', $basedir, $intermediatePath);
+                $archiveDir = $this->config['archive']['directory'];
+                $remoteRelativePath = sprintf('%s/%s', $archiveDir, $intermediatePath);
+
+                if ($isRemote && $localArchiveDir !== null) {
+                    $targetDir = sprintf('%s/%s', $localArchiveDir, $intermediatePath);
+                } else {
+                    $targetDir = sprintf('%s/%s', $basedir, $intermediatePath);
+                }
+
+                $format = (string) ($this->config['archive']['format'] ?? 'zip');
+                $packageName = $this->getPackageFilename($archiveManager, $package);
+
+                $remoteArchivePath = sprintf('%s/%s.%s', $remoteRelativePath, $packageName, $format);
+
+                if ($isRemote && $this->storage->fileExists($remoteArchivePath)) {
+                    $distUrl = sprintf('%s/%s/%s/%s.%s', $endpoint, $archiveDir, $intermediatePath, $packageName, $format);
+                    $package->setDistType($format);
+                    $package->setDistUrl($distUrl);
+                    $package->setDistReference($package->getSourceReference());
+
+                    if ($renderProgress) {
+                        $this->output->setVerbosity($verbosity);
+                    }
+
+                    if (!is_null($progressBar)) {
+                        $progressBar->advance();
+                    }
+                    continue;
+                }
 
                 $path = $this->archive($downloadManager, $archiveManager, $package, $targetDir);
                 $archiveFormat = pathinfo($path, PATHINFO_EXTENSION);
 
                 $archive = basename($path);
-                $distUrl = sprintf('%s/%s/%s/%s', $endpoint, $this->config['archive']['directory'], $intermediatePath, $archive);
+                $distUrl = sprintf('%s/%s/%s/%s', $endpoint, $archiveDir, $intermediatePath, $archive);
                 $package->setDistType($archiveFormat);
                 $package->setDistUrl($distUrl);
                 $hashedPath = hash_file('sha1', $path);
                 $package->setDistSha1Checksum($includeArchiveChecksum ? (is_string($hashedPath) ? $hashedPath : null) : null);
                 $package->setDistReference($package->getSourceReference());
+
+                if ($isRemote) {
+                    $remotePath = sprintf('%s/%s', $remoteRelativePath, $archive);
+                    $stream = fopen($path, 'r');
+                    if (false !== $stream) {
+                        $this->storage->writeStream($remotePath, $stream);
+                        if (is_resource($stream)) {
+                            fclose($stream);
+                        }
+                    }
+                    @unlink($path);
+                }
 
                 if ($renderProgress) {
                     $this->output->setVerbosity($verbosity);
@@ -149,6 +207,11 @@ class ArchiveBuilder extends Builder
         if ($renderProgress) {
             $this->output->writeln('');
         }
+
+        if ($isRemote && $localArchiveDir !== null) {
+            $filesystem = new Filesystem();
+            $filesystem->removeDirectory($localArchiveDir);
+        }
     }
 
     public function setComposer(Composer $composer): self
@@ -163,6 +226,23 @@ class ArchiveBuilder extends Builder
         $this->input = $input;
 
         return $this;
+    }
+
+    private function getPackageFilename(ArchiveManager $archiveManager, CompletePackageInterface $package): string
+    {
+        $format = (string) ($this->config['archive']['format'] ?? 'zip');
+        $overrideDistType = (bool) ($this->config['archive']['override-dist-type'] ?? false);
+
+        if ($overrideDistType) {
+            $originalDistType = $package->getDistType();
+            $package->setDistType($format);
+            $packageName = $archiveManager->getPackageFilename($package);
+            $package->setDistType($originalDistType);
+        } else {
+            $packageName = $archiveManager->getPackageFilename($package);
+        }
+
+        return $packageName;
     }
 
     private function archive(DownloadManager $downloadManager, ArchiveManager $archiveManager, CompletePackageInterface $package, string $targetDir): string

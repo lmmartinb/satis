@@ -29,6 +29,9 @@ use Composer\Satis\Builder\PackagesBuilder;
 use Composer\Satis\Builder\WebBuilder;
 use Composer\Satis\Console\Application as SatisApplication;
 use Composer\Satis\PackageSelection\PackageSelection;
+use Composer\Satis\Storage\RemoteStorageSync;
+use Composer\Satis\Storage\StorageConfig;
+use Composer\Satis\Storage\StorageFactory;
 use Composer\Util\ProcessExecutor;
 use Composer\Util\RemoteFilesystem;
 use JsonSchema\Validator;
@@ -242,6 +245,13 @@ class BuildCommand extends BaseCommand
         $satisConfigAsRootPackage = $loader->load($config);
         $composer->setPackage($satisConfigAsRootPackage);
 
+        $storageConfig = new StorageConfig($config['storage'] ?? []);
+        $storage = StorageFactory::create($storageConfig, $outputDir);
+
+        if ($storageConfig->isRemote()) {
+            RemoteStorageSync::syncToLocal($storage, $outputDir, $output);
+        }
+
         $packageSelection = new PackageSelection($output, $outputDir, $config, $skipErrors);
 
         if (null !== $repositoryUrl && [] !== $repositoryUrl) {
@@ -253,23 +263,22 @@ class BuildCommand extends BaseCommand
         $packages = $packageSelection->select($composer, $verbose);
 
         if (isset($config['archive']['directory'])) {
-            $downloads = new ArchiveBuilder($output, $outputDir, $config, $skipErrors);
+            $downloads = new ArchiveBuilder($output, $outputDir, $config, $skipErrors, $storage);
             $downloads->setComposer($composer);
             $downloads->setInput($input);
+            $downloads->setStorageConfig($storageConfig);
             $downloads->dump($packages);
         }
 
         $packages = $packageSelection->clean();
 
         if ($packageSelection->hasFilterForPackages() || $packageSelection->hasRepositoriesFilter()) {
-            // in case of an active filter we need to load the dumped packages.json and merge the
-            // updated packages in
             $oldPackages = $packageSelection->load();
             $packages += $oldPackages;
             ksort($packages);
         }
 
-        $packagesBuilder = new PackagesBuilder($output, $outputDir, $config, $skipErrors, $minify);
+        $packagesBuilder = new PackagesBuilder($output, $outputDir, $config, $skipErrors, $storage, $minify);
         $packagesBuilder->dump($packages);
 
         $htmlView = (bool) $input->getOption('no-html-output');
@@ -278,7 +287,7 @@ class BuildCommand extends BaseCommand
         }
 
         if ($htmlView) {
-            $web = new WebBuilder($output, $outputDir, $config, $skipErrors);
+            $web = new WebBuilder($output, $outputDir, $config, $skipErrors, $storage);
             $web->setRootPackage($composer->getPackage());
             $web->dump($packages);
         }
@@ -410,4 +419,5 @@ class BuildCommand extends BaseCommand
 
         throw new ParsingException('"' . $configFile . '" does not contain valid JSON' . "\n" . $result->getMessage(), $result->getDetails());
     }
+
 }

@@ -71,7 +71,7 @@ class WebBuilder extends Builder
             'blockIndexing' => !isset($this->config['allow-seo-indexing']) || true !== $this->config['allow-seo-indexing'],
         ]);
 
-        file_put_contents($this->outputDir . '/index.html', $content);
+        $this->storage->write('index.html', $content);
     }
 
     public function setRootPackage(RootPackageInterface $rootPackage): self

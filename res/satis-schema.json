@@ -390,6 +390,52 @@
             "type": "boolean",
             "description": "Defaults to true. When false, the JSON_PRETTY_PRINT option will not be used on encoding.",
             "default": true
+        },
+        "storage": {
+            "type": "object",
+            "description": "Storage backend configuration. Defaults to local filesystem. Supports 's3' for AWS S3 and 'gcs' for Google Cloud Storage.",
+            "additionalProperties": false,
+            "properties": {
+                "adapter": {
+                    "type": "string",
+                    "description": "Storage adapter to use.",
+                    "enum": ["local", "s3", "gcs"],
+                    "default": "local"
+                },
+                "bucket": {
+                    "type": "string",
+                    "description": "Bucket name for S3 or GCS adapters."
+                },
+                "prefix": {
+                    "type": "string",
+                    "description": "Path prefix within the bucket.",
+                    "default": ""
+                },
+                "region": {
+                    "type": "string",
+                    "description": "AWS region for S3 adapter.",
+                    "default": "us-east-1"
+                },
+                "credentials": {
+                    "type": "object",
+                    "description": "AWS credentials for S3 adapter.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "description": "AWS access key ID."
+                        },
+                        "secret": {
+                            "type": "string",
+                            "description": "AWS secret access key."
+                        }
+                    }
+                },
+                "keyFilePath": {
+                    "type": "string",
+                    "description": "Path to GCS service account JSON key file. If omitted, uses GOOGLE_APPLICATION_CREDENTIALS env var."
+                }
+            }
         }
     }
 }

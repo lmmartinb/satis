@@ -16,11 +16,12 @@ namespace Composer\Satis\Console\Command;
 use Composer\Command\BaseCommand;
 use Composer\Json\JsonFile;
 use Composer\Satis\PackageSelection\PackageSelection;
+use Composer\Satis\Storage\RemoteStorageSync;
+use Composer\Satis\Storage\StorageConfig;
+use Composer\Satis\Storage\StorageFactory;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Finder\Finder;
-use Symfony\Component\Finder\SplFileInfo;
 
 class PurgeCommand extends BaseCommand
 {
@@ -57,9 +58,6 @@ class PurgeCommand extends BaseCommand
         }
         $config = $file->read();
 
-        /*
-         * Check whether archive is defined
-         */
         if (!isset($config['archive']) || !isset($config['archive']['directory'])) {
             $output->writeln('<error>You must define "archive" parameter in your ' . $configFile . '</error>');
 
@@ -74,6 +72,13 @@ class PurgeCommand extends BaseCommand
         $dryRun = (bool) $input->getArgument('dry-run');
         if ($dryRun) {
             $output->writeln('<notice>Dry run enabled, no actual changes will be done.</notice>');
+        }
+
+        $storageConfig = new StorageConfig($config['storage'] ?? []);
+        $storage = StorageFactory::create($storageConfig, $outputDir);
+
+        if ($storageConfig->isRemote()) {
+            RemoteStorageSync::syncToLocal($storage, $outputDir, $output);
         }
 
         $packageSelection = new PackageSelection($output, $outputDir, $config, false);
@@ -98,26 +103,17 @@ class PurgeCommand extends BaseCommand
             }
         }
 
-        $distDirectory = sprintf('%s/%s', $outputDir, $config['archive']['directory']);
+        $archiveDir = $config['archive']['directory'];
 
-        $finder = new Finder();
-        $finder
-            ->files()
-            ->in($distDirectory)
-        ;
-
-        if (0 === $finder->count()) {
-            $output->writeln('<warning>No archives found.</warning>');
-
-            return 0;
-        }
-
-        /** @var SplFileInfo[] $unreferenced */
         $unreferenced = [];
-        foreach ($finder as $currentFile) {
-            $filename = strtr($currentFile->getRelativePathname(), DIRECTORY_SEPARATOR, '/');
-            if (!in_array($filename, $needed, true)) {
-                $unreferenced[] = $currentFile;
+        foreach ($storage->listContents($archiveDir, true) as $item) {
+            if (!$item->isFile()) {
+                continue;
+            }
+            $relativePath = $item->path();
+            $relativeToArchive = substr($relativePath, strlen($archiveDir) + 1);
+            if (!in_array($relativeToArchive, $needed, true)) {
+                $unreferenced[] = $relativePath;
             }
         }
 
@@ -127,19 +123,19 @@ class PurgeCommand extends BaseCommand
             return 0;
         }
 
-        foreach ($unreferenced as $currentFile) {
+        foreach ($unreferenced as $filePath) {
             if (!$dryRun) {
-                unlink($currentFile->getPathname());
+                $storage->delete($filePath);
             }
 
             $output->writeln(sprintf(
                 '<info>Removed archive</info>: <comment>%s</comment>',
-                $currentFile->getRelativePathname()
+                $filePath
             ));
         }
 
-        if (!$dryRun) {
-            $this->removeEmptyDirectories($output, $distDirectory);
+        if (!$dryRun && !$storageConfig->isRemote()) {
+            $this->removeEmptyDirectories($output, $outputDir . '/' . $archiveDir);
         }
 
         $output->writeln('<info>Done.</info>');

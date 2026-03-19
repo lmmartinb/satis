@@ -18,6 +18,8 @@ use Composer\Package\Link;
 use Composer\Package\RootPackage;
 use Composer\Satis\Builder\WebBuilder;
 use Composer\Semver\Constraint\MatchAllConstraint;
+use League\Flysystem\Filesystem;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use org\bovigo\vfs\vfsStream;
 use org\bovigo\vfs\vfsStreamDirectory;
 use org\bovigo\vfs\vfsStreamFile;
@@ -57,7 +59,7 @@ class WebBuilderDumpTest extends TestCase
 
     public function testNominalCase(): void
     {
-        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false);
+        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false, new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0)));
         $webBuilder->setRootPackage($this->rootPackage);
         $webBuilder->dump([$this->package]);
 
@@ -73,7 +75,7 @@ class WebBuilderDumpTest extends TestCase
     public function testRepositoryWithNoName(): void
     {
         $this->rootPackage = new RootPackage('__root__', '0', '0');
-        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false);
+        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false, new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0)));
         $webBuilder->setRootPackage($this->rootPackage);
         $webBuilder->dump([$this->package]);
 
@@ -88,7 +90,7 @@ class WebBuilderDumpTest extends TestCase
     {
         $link = new Link('dummytest', 'vendor/name', new MatchAllConstraint());
         $this->package->setRequires([$link->getTarget() => $link]);
-        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false);
+        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false, new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0)));
         $webBuilder->setRootPackage($this->rootPackage);
         $webBuilder->dump([$this->package]);
 
@@ -125,7 +127,7 @@ class WebBuilderDumpTest extends TestCase
     #[DataProvider('dataAbandoned')]
     public function testAbandoned($abandoned, string $expected): void
     {
-        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false);
+        $webBuilder = new WebBuilder(new NullOutput(), vfsStream::url('build'), [], false, new Filesystem(new LocalFilesystemAdapter(vfsStream::url('build'), writeFlags: 0)));
         $webBuilder->setRootPackage($this->rootPackage);
         $this->package->setAbandoned($abandoned);
         $webBuilder->dump([$this->package]);
