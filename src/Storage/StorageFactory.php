@@ -10,6 +10,7 @@ use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use League\Flysystem\Filesystem;
 use League\Flysystem\FilesystemOperator;
 use League\Flysystem\GoogleCloudStorage\GoogleCloudStorageAdapter;
+use League\Flysystem\GoogleCloudStorage\UniformBucketLevelAccessVisibility;
 use League\Flysystem\Local\LocalFilesystemAdapter;
 
 class StorageFactory
@@ -63,7 +64,7 @@ class StorageFactory
         $bucket = $storageClient->bucket($config->bucket());
 
         return new Filesystem(
-            new GoogleCloudStorageAdapter($bucket, $config->prefix())
+            new GoogleCloudStorageAdapter($bucket, $config->prefix(), new UniformBucketLevelAccessVisibility())
         );
     }
 }
