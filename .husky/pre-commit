@@ -1,1 +1,8 @@
+PHP_CHANGED=$(git diff --cached --name-only --diff-filter=ACM -- '*.php')
+
+if [ -n "$PHP_CHANGED" ]; then
+  PHP_CS_FIXER_IGNORE_ENV=true tools/php-cs-fixer/vendor/bin/php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.dist.php || exit 1
+  tools/phpstan/vendor/bin/phpstan analyse --no-progress || exit 1
+fi
+
 npx lint-staged
