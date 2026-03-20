@@ -55,6 +55,79 @@ $storage = StorageFactory::create($storageConfig, $outputDir);
 
 $uri = urldecode(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/');
 
+if ('/webhook' === $uri && 'POST' === ($_SERVER['REQUEST_METHOD'] ?? '')) {
+    $rawBody = file_get_contents('php://input');
+    $secret = getenv('SATIS_WEBHOOK_SECRET');
+
+    if (false !== $secret && '' !== $secret) {
+        $gitlabToken = $_SERVER['HTTP_X_GITLAB_TOKEN'] ?? '';
+        $githubSig = $_SERVER['HTTP_X_HUB_SIGNATURE_256'] ?? '';
+        $giteaSig = $_SERVER['HTTP_X_GITEA_SIGNATURE'] ?? '';
+        $bitbucketSig = $_SERVER['HTTP_X_HUB_SIGNATURE'] ?? '';
+
+        $valid = false;
+        if ('' !== $gitlabToken) {
+            $valid = hash_equals($secret, $gitlabToken);
+        } elseif ('' !== $githubSig) {
+            $expected = 'sha256='.hash_hmac('sha256', $rawBody, $secret);
+            $valid = hash_equals($expected, $githubSig);
+        } elseif ('' !== $giteaSig) {
+            $expected = hash_hmac('sha256', $rawBody, $secret);
+            $valid = hash_equals($expected, $giteaSig);
+        } elseif ('' !== $bitbucketSig) {
+            $expected = 'sha256='.hash_hmac('sha256', $rawBody, $secret);
+            $valid = hash_equals($expected, $bitbucketSig);
+        }
+
+        if (!$valid) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Invalid signature']);
+
+            return true;
+        }
+    }
+
+    $payload = json_decode($rawBody, true);
+    if (!is_array($payload)) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Invalid JSON payload']);
+
+        return true;
+    }
+
+    $repoUrl = $payload['repository']['clone_url']
+        ?? $payload['repository']['git_http_url']
+        ?? $payload['repository']['links']['html']['href']
+        ?? null;
+
+    if (null === $repoUrl || '' === $repoUrl) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Could not extract repository URL from payload']);
+
+        return true;
+    }
+
+    $satisBin = dirname(__DIR__, 2).'/bin/satis';
+    $cmd = sprintf(
+        '%s %s build %s %s --repository-url=%s > /dev/null 2>&1 &',
+        PHP_BINARY,
+        escapeshellarg($satisBin),
+        escapeshellarg($configFile),
+        escapeshellarg($outputDir),
+        escapeshellarg($repoUrl)
+    );
+    exec($cmd);
+
+    http_response_code(202);
+    header('Content-Type: application/json');
+    echo json_encode(['status' => 'building', 'repository' => $repoUrl]);
+
+    return true;
+}
+
 if ('/' === $uri) {
     $uri = '/index.html';
 }

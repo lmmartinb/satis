@@ -33,6 +33,7 @@ class ServeCommand extends BaseCommand
                 new InputArgument('file', InputArgument::OPTIONAL, 'Json file to use', './satis.json'),
                 new InputOption('host', null, InputOption::VALUE_REQUIRED, 'Address to bind to', '0.0.0.0'),
                 new InputOption('port', 'p', InputOption::VALUE_REQUIRED, 'Port to listen on', '8080'),
+                new InputOption('webhook-secret', null, InputOption::VALUE_REQUIRED, 'HMAC secret for webhook authentication'),
             ])
             ->setHelp(
                 <<<'EOT'
@@ -46,6 +47,7 @@ class ServeCommand extends BaseCommand
                     <info>php bin/satis serve satis.json</info>
                     <info>php bin/satis serve satis.json --port=9090</info>
                     <info>php bin/satis serve satis.json --host=127.0.0.1 --port=8080</info>
+                    <info>php bin/satis serve satis.json --webhook-secret=mysecret</info>
                 EOT
             );
     }
@@ -55,6 +57,7 @@ class ServeCommand extends BaseCommand
         $configFile = $input->getArgument('file');
         $host = $input->getOption('host');
         $port = $input->getOption('port');
+        $webhookSecret = $input->getOption('webhook-secret');
 
         $file = new JsonFile($configFile);
         if (!$file->exists()) {
@@ -80,7 +83,10 @@ class ServeCommand extends BaseCommand
         $process = new Process(
             [PHP_BINARY, '-S', $listenAddress, $routerPath],
             null,
-            ['SATIS_CONFIG' => realpath($configFile) ?: $configFile],
+            array_merge(getenv(), array_filter([
+                'SATIS_CONFIG' => realpath($configFile) ?: $configFile,
+                'SATIS_WEBHOOK_SECRET' => $webhookSecret,
+            ])),
             null,
             null
         );
